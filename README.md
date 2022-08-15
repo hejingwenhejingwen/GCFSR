@@ -7,7 +7,7 @@ Bytedance, Shenzhen Institute of Advanced Technology, Chinese Academy of Science
 <img src="assets/arch.jpg" width="800px"/>
 
 #### Results
-<img src="assets/results.jpg" width="400px"/>
+<img src="assets/results.jpg" width="800px"/>
 
 ---
 
