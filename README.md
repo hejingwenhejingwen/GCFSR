@@ -10,6 +10,10 @@ Bytedance, Shenzhen Institute of Advanced Technology, Chinese Academy of Science
 <img src="assets/results.jpg" width="800px"/>
 
 ---
+ 
+### Update
+- **2022.11.21**: Release inference code for blind face restoration. 
+- **2022.03.23**: This repo is created.
 
 ## Dependencies and Installation
 
