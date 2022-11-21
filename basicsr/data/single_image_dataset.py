@@ -53,7 +53,7 @@ class SingleImageDataset(data.Dataset):
         lq_path = self.paths[index]
         img_bytes = self.file_client.get(lq_path, 'lq')
         img_lq = imfrombytes(img_bytes, float32=True)
-        img_lq = cv2.resize(img_lq, (512, 512), interpolation=cv2.INTER_LINEAR)
+        # img_lq = cv2.resize(img_lq, (512, 512), interpolation=cv2.INTER_LINEAR)
 
         # TODO: color space transform
         # BGR to RGB, HWC to CHW, numpy to tensor

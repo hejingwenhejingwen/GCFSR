@@ -35,7 +35,13 @@ Bytedance, Shenzhen Institute of Advanced Technology, Chinese Academy of Science
 
 ## Inference
 
-**Inference**
+**Inference for blind face restoration**
+  
+```bash
+python inference_gcfsr_blind.py --model_path experiments/pretrained_models/gcfsr_blind_512.pth --input inputs/sample 
+```
+
+**Inference (TODO)**
   
 ```bash
 python inference_gcfsr.py --model_path experiments/ --scale 32 --input inputs/sample --output outputs/tmp
@@ -61,13 +67,13 @@ We provide the training codes for GCFSR.
 > python -m torch.distributed.launch --nproc_per_node=8 --master_port=22021 basicsr/train.py -opt options/train/train_gcfsr.yml --launcher pytorch
 
 
-## Model Zoo (TODO)
+## Model Zoo
 
 | Model Name  | Description | 
 | :---:        |     :---:      |
-| [gcfsr-1024]() | 1024 model trained with L1 + perceptual loss + gan loss. |
-| [gcfsr-512]() |  512 model trained with gan loss only. |
-| [gcfsr-512-blind]() |  512 model trained with gan loss only. |
+<!-- | [gcfsr-1024]() | 1024 model trained with L1 + perceptual loss + gan loss. |
+| [gcfsr-512]() |  512 model trained with gan loss only. | -->
+| [gcfsr-512-blind](https://drive.google.com/file/d/1Yzi1O5SeSFq_yrunrTJ1nkTT8jbBOaLJ/view?usp=sharing) |  blind face restoration. |
 
 ## BibTeX
 

@@ -188,6 +188,8 @@ class GCFSR_Model(BaseModel):
             self.real_img = data['gt'].to(self.device)
         if 'in_size' in data:
             self.in_size = data['in_size'].to(self.device)
+        else:
+            self.in_size = None
         self.lq = data['lq'].to(self.device)
 
     def make_noise(self, batch, num_noise):
@@ -211,7 +213,10 @@ class GCFSR_Model(BaseModel):
             p.requires_grad = True
         self.optimizer_d.zero_grad()
 
-        fake_img, _ = self.net_g(self.lq, self.in_size)
+        if self.in_size is None:
+            fake_img, _ = self.net_g(self.lq) 
+        else:
+            fake_img, _ = self.net_g(self.lq, self.in_size)
         fake_pred = self.net_d(fake_img.detach())
 
         real_pred = self.net_d(self.real_img)
@@ -244,7 +249,12 @@ class GCFSR_Model(BaseModel):
             p.requires_grad = False
         self.optimizer_g.zero_grad()
 
-        fake_img, _ = self.net_g(self.lq, self.in_size)
+        # fake_img, _ = self.net_g(self.lq, self.in_size)
+        # fake_img, _ = self.net_g(self.lq)
+        if self.in_size is None:
+            fake_img, _ = self.net_g(self.lq) 
+        else:
+            fake_img, _ = self.net_g(self.lq, self.in_size)
         fake_pred = self.net_d(fake_img)
         
         # wgan loss with softplus (non-saturating loss) for generator
@@ -277,7 +287,11 @@ class GCFSR_Model(BaseModel):
     def test(self):
         with torch.no_grad():
             self.net_g_ema.eval()
-            self.output, _ = self.net_g_ema(self.lq, self.in_size)
+            if self.in_size is None:
+                self.output, _ = self.net_g_ema(self.lq) 
+            else:
+                self.output, _ = self.net_g_ema(self.lq, self.in_size)
+            # self.output, _ = self.net_g_ema(self.lq, self.in_size)
             # self.output, _ = self.net_g_ema(self.lq)
 
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img):

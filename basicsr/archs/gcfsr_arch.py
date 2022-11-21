@@ -942,6 +942,208 @@ class GCFSR(nn.Module):
             return image, None
 
 
+@ARCH_REGISTRY.register()
+class GCFSR_blind(nn.Module):
+
+    def __init__(self,
+                 out_size,
+                 num_style_feat=512,
+                 channel_multiplier=2,
+                 resample_kernel=(1, 3, 3, 1),
+                 narrow=1):
+        super(GCFSR_blind, self).__init__()
+
+        self.num_style_feat = num_style_feat
+
+        channels = {
+            '4': int(512 * narrow),
+            '8': int(512 * narrow),
+            '16': int(512 * narrow),
+            '32': int(512 * narrow),
+            '64': int(256 * channel_multiplier * narrow),
+            '128': int(128 * channel_multiplier * narrow),
+            '256': int(64 * channel_multiplier * narrow),
+            '512': int(32 * channel_multiplier * narrow),
+            '1024': int(16 * channel_multiplier * narrow)
+        }
+        self.channels = channels
+
+        self.log_size = int(math.log(out_size, 2))
+        self.num_latent = (self.log_size - 2) * 2 - 2
+
+        first_out_size = 2**(int(math.log(out_size, 2)))
+
+        self.encoder_channels = channels
+
+        self.conv_body_first = ConvLayer(3, channels[f'{first_out_size}'], 3, bias=True, activate=True)
+        # downsample
+        in_channels = channels[f'{first_out_size}']
+        self.conv_body_down = nn.ModuleList()
+        for i in range(self.log_size-1, 2+1, -1):
+            out_channels = channels[f'{2**i}']
+            self.conv_body_down.append(ConvLayer(in_channels, out_channels, 3, downsample=True))
+            in_channels = out_channels
+
+        # to generate "const 16x16";
+        self.final_conv = ConvLayer(channels['16'], channels['16'], 3)
+
+        self.final_down1 = ConvLayer(channels['16'], channels['8'], 3, downsample=True)
+        self.final_down2 = ConvLayer(channels['8'], channels['4'], 3, downsample=True)
+        self.final_linear = EqualLinear(4 * 4 * 512, self.num_style_feat * self.num_latent, bias=True, activation='fused_lrelu')
+
+        self.condition_scale1 = nn.ModuleList()
+        self.condition_scale2 = nn.ModuleList()
+        self.condition_shift = nn.ModuleList()
+        
+        for i in range(self.log_size, 2+1, -1):
+            out_channels = channels[f'{2**i}']
+            in_channels = channels[f'{2**i}']
+
+            self.condition_scale1.append(
+                EqualLinear(1, out_channels, bias=True, bias_init_val=1, activation=None))
+
+            self.condition_scale2.append(
+                EqualLinear(1, out_channels, bias=True, bias_init_val=1, activation=None))
+           
+            self.condition_shift.append(
+                ConvLayer(in_channels, out_channels, 3, bias=True, activate=False))
+
+        # stylegan decoder
+        self.style_conv1 = StyleConv_norm_scale_shift(
+            channels['16'],
+            channels['16'],
+            kernel_size=3,
+            num_style_feat=num_style_feat,
+            demodulate=True,
+            sample_mode=None,
+            resample_kernel=resample_kernel)
+        self.to_rgb1 = ToRGB(channels['16'], num_style_feat, upsample=False, resample_kernel=resample_kernel)
+        
+        self.log_size = int(math.log(out_size, 2))
+        self.num_layers = (self.log_size - 2 - 2) * 2 + 1
+
+        self.style_convs = nn.ModuleList()
+        self.to_rgbs = nn.ModuleList()
+        self.noises = nn.Module()
+
+        in_channels = channels['16']
+        # noise
+        for layer_idx in range(self.num_layers):
+            resolution = 2**((layer_idx + 5) // 2)
+            shape = [1, 1, resolution, resolution]
+            self.noises.register_buffer(f'noise{layer_idx}', torch.randn(*shape))
+        # style convs and to_rgbs
+        for i in range(3+2, self.log_size + 1):
+            out_channels = channels[f'{2**i}']
+            self.style_convs.append(
+                StyleConv(
+                    in_channels,
+                    out_channels,
+                    kernel_size=3,
+                    num_style_feat=num_style_feat,
+                    demodulate=True,
+                    sample_mode='upsample',
+                    resample_kernel=resample_kernel,
+                ))
+            self.style_convs.append(
+                StyleConv_norm_scale_shift(
+                    out_channels,
+                    out_channels,
+                    kernel_size=3,
+                    num_style_feat=num_style_feat,
+                    demodulate=True,
+                    sample_mode=None,
+                    resample_kernel=resample_kernel))
+            self.to_rgbs.append(ToRGB(out_channels, num_style_feat, upsample=True, resample_kernel=resample_kernel))
+            in_channels = out_channels
+
+    def make_noise(self):
+        """Make noise for noise injection."""
+        device = self.constant_input.weight.device
+        noises = [torch.randn(1, 1, 4, 4, device=device)]
+
+        for i in range(3, self.log_size + 1):
+            for _ in range(2):
+                noises.append(torch.randn(1, 1, 2**i, 2**i, device=device))
+
+        return noises
+
+
+    def forward(self, x,
+                noise=None,
+                randomize_noise=True,
+                return_latents=False):
+
+        # noises
+        if noise is None:
+            if randomize_noise:
+                noise = [None] * self.num_layers  # for each style conv layer
+            else:  # use the stored noise
+                noise = [getattr(self.noises, f'noise{i}') for i in range(self.num_layers)]
+
+        device = self.final_linear.weight.device
+        # fix "in_size" to 1
+        in_size = torch.ones(1, device=device)
+
+        # main generation
+        feat = self.conv_body_first(x)
+        
+        scales1, scales2, shifts = [], [], []
+
+        scale1 = self.condition_scale1[0](in_size)
+        scales1.append(scale1.clone())
+        scale2 = self.condition_scale2[0](in_size)
+        scales2.append(scale2.clone())
+
+        shift = self.condition_shift[0](feat)
+        shifts.append(shift.clone())
+
+        j = 1
+        for i in range(len(self.conv_body_down)):
+            feat = self.conv_body_down[i](feat)
+            if j < len(self.condition_scale1):
+                scale1 = self.condition_scale1[j](in_size)
+                scales1.append(scale1.clone())
+                scale2 = self.condition_scale2[j](in_size)
+                scales2.append(scale2.clone())
+                shift = self.condition_shift[j](feat)
+                shifts.append(shift.clone())
+                j += 1
+
+        scales1 = scales1[::-1]
+        scales2 = scales2[::-1]
+        shifts = shifts[::-1]
+
+        b = feat.size(0)
+
+        tmp = self.final_down2(self.final_down1(feat))
+        latent = self.final_linear(tmp.view(b, -1)).view(-1, self.num_latent, self.num_style_feat)
+
+        out = self.final_conv(feat)
+        out = self.style_conv1(out, latent[:, 0], noise=noise[0], scale1=scales1[0], scale2=scales2[0], shift=shifts[0])
+        # out = out * scales1[0].view(-1, out.size(1), 1, 1) + shifts[0] * scales2[0].view(-1, out.size(1), 1, 1)
+        skip = self.to_rgb1(out, latent[:, 1])
+
+
+        i = 1
+        j = 1
+        for conv1, conv2, noise1, noise2, to_rgb in zip(self.style_convs[::2], self.style_convs[1::2], noise[1::2],
+                                                        noise[2::2], self.to_rgbs):
+            out = conv1(out, latent[:, i], noise=noise1)
+            out = conv2(out, latent[:, i + 1], noise=noise2, scale1=scales1[j], scale2=scales2[j], shift=shifts[j])
+            skip = to_rgb(out, latent[:, i + 2], skip)
+            i += 2
+            j += 1
+
+        image = skip
+
+        if return_latents:
+            return image, latent
+        else:
+            return image, None
+
+
+
 class ResBlock(nn.Module):
     """Residual block used in StyleGAN2 Discriminator.
 
