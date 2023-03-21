@@ -78,6 +78,7 @@ We provide the training codes for GCFSR.
 <!-- | [gcfsr-1024]() | 1024 model trained with L1 + perceptual loss + gan loss. |
 | [gcfsr-512]() |  512 model trained with gan loss only. | -->
 | [gcfsr-512-blind](https://drive.google.com/file/d/1Yzi1O5SeSFq_yrunrTJ1nkTT8jbBOaLJ/view?usp=sharing) |  blind face restoration. |
+| [gcfsr-1024](https://drive.google.com/file/d/1YD4wSERxDNOAckoJQ8LCZ9hy4hd01E1z/view?usp=share_link) | Controllable face super resolution. |
 
 ## BibTeX
 
